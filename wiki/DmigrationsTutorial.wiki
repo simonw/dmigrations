@@ -1,0 +1,354 @@
+#summary The dmigrations tutorial
+#labels tutorial,Featured
+
+= The dmigrations tutorial =
+
+dmigrations requires Django 1.0 (beta or final)
+
+== Installation ==
+
+1. Check out dmigrations somewhere on your Python path:
+
+{{{
+$ svn co http://dmigrations.googlecode.com/svn/trunk/dmigrations dmigrations
+}}}
+
+2. Add dmigrations to your project's `INSTALLED_APPS` setting:
+
+{{{
+INSTALLED_APPS = (
+    ...
+    'dmigrations',
+)
+}}}
+
+3. Create a directory to hold your migrations and add it to a new `DMIGRATIONS_DIR` setting. I like to make this directory relative to the directory that holds my settings.py file so I can move my project about:
+
+{{{
+$ chdir my_project_dir
+$ mkdir migrations
+
+# in settings.py:
+import os
+DMIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), 'migrations')
+
+# Or you could just do this:
+DMIGRATIONS_DIR = 'path/to/your/migrations/'
+}}}
+
+== Tutorial: Creating a simple forum ==
+
+First, create a new project:
+
+{{{
+$ django-admin.py startproject simple_forum
+}}}
+
+And create a 'forum' application within that project, and create the project's migrations directory:
+
+{{{
+$ cd simple_forum
+$ mkdir migrations
+$ ./manage.py startapp forum
+}}}
+
+Next, make the following changes to `settings.py`:
+
+{{{
+DATABASE_ENGINE = 'mysql'
+DATABASE_NAME = 'simple_forum'
+
+INSTALLED_APPS = (
+    'dmigrations',
+    'forum',
+)
+
+import os
+DMIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), 'migrations')
+}}}
+
+Now create the database:
+
+{{{
+$ mysql -u root
+mysql> create database simple_forum;
+Query OK, 1 row affected (0.07 sec)
+}}}
+
+=== Creating the tables for an application ===
+
+Let's set up a simple pair of Topic / Post models.
+
+{{{
+# forum/models.py
+from django.db import models
+
+class Topic(models.Model):
+    name = models.CharField(max_length = 255)
+
+class Post(models.Model):
+    topic = models.ForeignKey(Topic)
+    body = models.TextField()
+    posted = models.DateTimeField(auto_now_add = True)
+}}}
+
+Now we need to create the corresponding database tables. Normally we would run `syncdb` to do this, but now that we're using dmigrations we run `dmigration app` instead:
+
+{{{
+$ ./manage.py dmigration app forum
+Created migration: ...simple_forum/migrations/001_forum_models.py
+}}}
+
+The above command generates our first migration. The file it creates looks like this:
+
+{{{
+from dmigrations.mysql import migrations as m
+import datetime
+migration = m.Migration(sql_up=["""
+    CREATE TABLE `forum_topic` (
+        `id` integer AUTO_INCREMENT NOT NULL PRIMARY KEY,
+        `name` varchar(255) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+    ;
+""", """
+    CREATE TABLE `forum_post` (
+        `id` integer AUTO_INCREMENT NOT NULL PRIMARY KEY,
+        `topic_id` integer NOT NULL,
+        `body` longtext NOT NULL,
+        `posted` datetime NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+    ;
+""", """
+    ALTER TABLE `forum_post` ADD CONSTRAINT topic_id_refs_id_9b35c97 FOREIGN KEY (`topic_id`) REFERENCES `forum_topic` (`id`);
+"""], sql_down=["""
+    DROP TABLE `forum_post`;
+""", """
+    DROP TABLE `forum_topic`;
+"""])
+}}}
+
+As you can see, the migration object has both sql_up and sql_down arguments. sql_up is run when the migration is applied, whereas sql_down is run when it is unapplied (and should revert the changes made when the migration was initially run).
+
+Before we run our migration, let's see a list of all available migrations:
+
+{{{
+$ ./manage.py dmigrate list
+* [ ] 001_forum_models
+}}}
+
+There's one migration, the one we just created. Let's apply it to our database:
+
+{{{
+$ ./manage.py dmigrate up
+Applying migration 001_forum_models
+}}}
+
+The `up` command applies the next unapplied migration. Sure enough, if we list the tables in our database `forum_post` and `forum_topic` have been created:
+
+{{{
+$ mysql -u root simple_forum
+mysql> show tables;
++------------------------+
+| Tables_in_simple_forum |
++------------------------+
+| dmigrations            | 
+| dmigrations_log        | 
+| forum_post             | 
+| forum_topic            | 
++------------------------+
+4 rows in set (0.00 sec)
+}}}
+
+Note that there are two other tables in the database now: `dmigrations` and `dmigrations_log`. These are created automatically the first time the migrations system is invoked, and are used to keep track of which migrations have been executed.
+
+Run `dmigrate list` again to see that the migration has indeed been applied:
+
+{{{
+$ ./manage.py dmigrate list
+* [+] 001_forum_models
+}}}
+
+Now let's roll back the migration using the `down` command:
+
+{{{
+$ ./manage.py dmigrate down
+Unapplying migration 001_forum_models
+$ mysql -u root simple_forum
+mysql> show tables;
++------------------------+
+| Tables_in_simple_forum |
++------------------------+
+| dmigrations            | 
+| dmigrations_log        | 
++------------------------+
+2 rows in set (0.00 sec)
+}}}
+
+We'll run the migration again, but this time using the `all` command (which executes all unapplied migrations in sequence):
+
+{{{
+$ ./manage.py dmigrate all
+Applying migration 001_forum_models
+}}}
+
+=== Adding a table ===
+
+Let's add a new model for announcements - special messages that appear at the top of our forum. First, add the new model to `forum/models.py`:
+
+{{{
+class Announcement(models.Model):
+    body = models.TextField()
+    posted = models.DateTimeField(auto_now_add = True)
+}}}
+
+Next, create a migration to add the table. We can do this with the `dmigration addtable` command, which takes the name of the application followed by the name of the model (in lower case):
+
+{{{
+$ ./manage.py dmigration addtable forum announcement
+Created migration: ...simple_forum/migrations/002_forum_models.py
+}}}
+
+Now we can run the migration with `dmigrate up`:
+
+{{{
+$ ./manage.py dmigrate up
+Applying migration 002_forum_models
+}}}
+
+Run `dmigrate list` to see the full list of applied migrations again:
+
+{{{
+$ ./manage.py dmigrate list
+* [+] 001_forum_models
+* [+] 002_forum_models
+}}}
+
+=== Adding columns ===
+
+So far, our forum is anonymous - we don't store any details about the person who created a post. Let's add fields for their name and their IP address. First, add the field definitions to `forum/models.py`:
+
+{{{
+class Post(models.Model):
+    ...
+    name = models.CharField(max_length = 100)
+    ip = models.IPAddressField()
+}}}
+
+Now we need to generate migrations to add those columns, using the `dmigration addcolumn` command:
+
+{{{
+$ ./manage.py dmigration addcolumn forum post name
+Created migration: ...simple_forum/migrations/003_add_column_name_to_forum_post.py
+$ ./manage.py dmigration addcolumn forum post ip
+Created migration: 
+...simple_forum/migrations/004_add_column_ip_to_forum_post.py
+}}}
+
+=== Combining migrations ===
+
+We've created two new migrations. We could run them right now using `dmigration all`, but it would be neater if we could combine them in to one migration, allowing us to make a single atomic change to the database. To do that, we'll have to edit the migration files themselves.
+
+First, open up both files in a text editor. They look like this:
+
+{{{
+# 003_add_column_name_to_forum_post.py:
+from dmigrations.mysql import migrations as m
+import datetime
+migration = m.AddColumn('forum', 'post', 'name', 'varchar(100) NOT NULL')
+
+# 004_add_column_ip_to_forum_post.py:
+from dmigrations.mysql import migrations as m
+import datetime
+migration = m.AddColumn('forum', 'post', 'ip', 'char(15) NOT NULL')
+}}}
+
+A migration is simply a Python file that contains a single object called `migration`. This object must be an instance of a `BaseMigration` subclass, and must provide `up()` and `down()` methods.
+
+We can combine our two migrations in to one using a `Compound` migration. Edit `003_add_column_name_to_forum_post.py` to look like this:
+
+{{{
+from dmigrations.mysql import migrations as m
+
+add_name = m.AddColumn('forum', 'post', 'name', 'varchar(100) NOT NULL')
+add_ip = m.AddColumn('forum', 'post', 'ip', 'char(15) NOT NULL')
+
+migration = m.Compound([add_name, add_ip])
+}}}
+
+Save that file as `003_add_name_and_ip_to_forum_post.py`, and delete the two migrations we just generated.
+
+Now we can run our new compound migration using `dmigrate up`:
+
+{{{
+./manage.py dmigrate up
+Applying migration 003_add_name_and_ip_to_forum_post
+}}}
+
+If you look in MySQL, you'll see that the new columns have been added to the table:
+
+{{{
+$ mysql -u root simple_forum
+mysql> describe forum_post;
++----------+--------------+------+-----+---------+----------------+
+| Field    | Type         | Null | Key | Default | Extra          |
++----------+--------------+------+-----+---------+----------------+
+| id       | int(11)      | NO   | PRI | NULL    | auto_increment | 
+| topic_id | int(11)      | NO   | MUL | NULL    |                | 
+| body     | longtext     | NO   |     | NULL    |                | 
+| posted   | datetime     | NO   |     | NULL    |                | 
+| name     | varchar(100) | NO   |     | NULL    |                | 
+| ip       | char(15)     | NO   |     | NULL    |                | 
++----------+--------------+------+-----+---------+----------------+
+6 rows in set (0.12 sec)
+}}}
+
+=== Next steps ===
+
+`dmigrate` has a help command; run it to see an overview of commands available to you:
+
+{{{
+$ ./manage.py dmigrate help
+Usage: manage.py dmigrate [options] [command] [arguments]
+
+Commands:
+./manage.py dmigrate apply M1 M1 - Apply specified migrations
+./manage.py dmigrate unapply M1 M2 - Unapply specified migration
+./manage.py dmigrate mark_as_applied M1 M2 - Mark specified migrations as applied without running them
+./manage.py dmigrate mark_as_unapplied M1 M2 - Unapply specified migration as unapplied without running them
+./manage.py dmigrate cat M1 M2 - Print specified migrations
+
+./manage.py dmigrate all      - Run all migrations
+./manage.py dmigrate up       - Apply oldest unapplied migration
+./manage.py dmigrate down     - Unapply newest applied migration
+
+./manage.py dmigrate to M     - Apply all migrations up to M, upapply all migrations newer than M
+./manage.py dmigrate upto M   - Apply all migrations up to M
+./manage.py dmigrate downto M - Upapply all migrations newer than M
+
+./manage.py dmigrate init     - Ensure migration system is initialized
+
+./manage.py dmigrate list     - List all migrations and their state
+./manage.py dmigrate help     - Display this message
+
+
+Options:
+  --settings=SETTINGS   The Python path to a settings module, e.g.
+                        "myproject.settings.main". If this isn't provided, the
+                        DJANGO_SETTINGS_MODULE environment variable will be
+                        used.
+  --pythonpath=PYTHONPATH
+                        A directory to add to the Python path, e.g.
+                        "/home/djangoprojects/myproject".
+  --traceback           Print traceback on exception
+  --dev                 Run development migrations (DEV in the filename) as
+                        well
+  --nodev               Exclude development migrations (DEV in the filename)
+  --print-plan          Only print plan
+  --verbosity=VERBOSITY
+                        Verbosity level; 0=minimal, 1=normal output, 2=all
+                        output
+  --version             show program's version number and exit
+  -h, --help            show this help message and exit
+}}}
+
+For more advanced migrations (such as migrations that alter your data) you'll need to write your own migration classes. This is relatively straight forward; take a look at the built-in migrations in `dmigrations/mysql/migrations.py` for examples of how these should work.

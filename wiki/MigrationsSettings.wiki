@@ -1,0 +1,26 @@
+#summary Settings for use in settings.py
+#labels Featured
+
+=== DMIGRATIONS_DIR ===
+
+The directory in which your migration script files will live (and be created by `dmigration`).
+
+=== DMIGRATIONS_MYSQL_ENGINE ===
+
+By default, dmigrations creates MySQL tables using the InnoDB engine. If you want to use something else (like MyISAM for example), use this setting to specify your preferred alternative.
+
+=== DISABLE_SYNCDB ===
+
+If you're working in a team environment and you're worried someone might be using syncdb instead of the dmigrations system, set this to `True` to hit them with an error message instead. Note that the Django default test suite needs to use syncdb to create the tables; a dmigrations-aware test runner is not yet publicly available.
+
+= For other database backends =
+
+dmigrations only supports MySQL at the moment. If you want to build backends for other databases, these settings are a good place to start - though these may well change as they are quite confusing.
+
+=== DMIGRATIONS_DATABASE_BACKEND ===
+
+When migrations are generated, this is used in the migrations import. Default is `mysql`.
+
+=== DMIGRATION_GENERATOR ===
+
+The module used to generate new migrations. You are very unlikely to need to change this. Defaults to `dmigrations.???.generator`, where `???` is `settings.DATABASE_ENGINE`.
