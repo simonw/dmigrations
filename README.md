@@ -1,6 +1,8 @@
 dmigrations - a simple migrations tool for Django
 =================================================
 
+> This project was [created in 2008](https://code.google.com/archive/p/dmigrations/). It has not been updated since 2009, and is archived here for historical reference.
+
 **Current version: 0.3.1**
 
 dmigrations offers a simple but flexible way of managing changes to the database in your Django projects. It is a replacement for Django's built in syncdb command.
